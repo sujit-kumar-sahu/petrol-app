@@ -2,24 +2,21 @@ import datetime
 import sqlite3
 import pandas as pd
 import streamlit as st
-import numpy as np
-from PIL import Image
-import io
-import re
 
 # --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect("bike_tracker.db", check_same_thread=False)
     cursor = conn.cursor()
     
+    # Members table (only names needed now)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
+            name TEXT UNIQUE NOT NULL
         )
     """)
     
+    # Rides table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS rides (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,9 +28,7 @@ def init_db():
             distance REAL,
             petrol_price REAL,
             total_cost REAL,
-            status TEXT NOT NULL,
-            start_image BLOB,
-            end_image BLOB
+            status TEXT NOT NULL
         )
     """)
     conn.commit()
@@ -45,76 +40,53 @@ cursor = conn.cursor()
 # --- APP CONFIGURATION ---
 st.set_page_config(page_title="Petrol.py - Bike Expense Tracker", layout="wide")
 
-# --- ODOMETER AUTO-EXTRACTION & VALIDATION HELPER ---
-def extract_odometer_value(image_file):
-    """
-    Validates image and extracts potential odometer digits.
-    Note: If standard OCR libraries aren't locally pre-compiled, this helper 
-    pre-processes the image layout and returns a suggested default value or prompts manual check.
-    """
-    try:
-        image = Image.open(image_file)
-        img_array = np.array(image)
-        
-        if img_array.mean() < 15:  
-            return False, "The captured image is too dark or black.", 0.0
-        if img_array.var() < 100:
-            return False, "The image lacks clarity or detail.", 0.0
-            
-        # Simulating automated digit detection fallback loop
-        # (In a production environment with pytesseract/easyocr configured, pixel rows are parsed here)
-        extracted_dummy_reading = 12450.5  # Smart placeholder derived from visual pixel matrix bounds
-        
-        return True, "Odometer detected successfully.", extracted_dummy_reading
-    except Exception as e:
-        return False, f"Error processing image: {str(e)}", 0.0
-
 # --- SESSION STATE FOR LOGIN ---
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
+# Fetch existing members for login dropdown
+cursor.execute("SELECT name FROM members")
+members = [row[0] for row in cursor.fetchall()]
+
 # --- LOGIN SCREEN ---
 if not st.session_state.logged_in:
     st.title("⛽ Petrol.py: Login")
-    st.markdown("Please log in with your member credentials to access the app.")
+    st.markdown("Select your name to log in, or register a new member below.")
     
-    tab_login, tab_register = st.tabs(["🔑 Login", "➕ Create Account"])
+    tab_login, tab_register = st.tabs(["🔑 Log In", "➕ Register Member"])
     
     with tab_login:
-        login_name = st.text_input("Name", key="login_name_input")
-        login_pass = st.text_input("Password", type="password", key="login_pass_input")
-        if st.button("Log In"):
-            cursor.execute("SELECT * FROM members WHERE name = ? AND password = ?", (login_name.strip(), login_pass.strip()))
-            user = cursor.fetchone()
-            if user:
+        if members:
+            selected_login_name = st.selectbox("Select Your Name", members, key="login_select")
+            if st.button("Log In"):
                 st.session_state.logged_in = True
-                st.session_state.username = login_name.strip()
-                st.success("Logged in successfully!")
+                st.session_state.username = selected_login_name
+                st.success(f"Welcome back, {selected_login_name}!")
                 st.rerun()
-            else:
-                st.error("Invalid Name or Password.")
+        else:
+            st.info("No members registered yet. Please go to the 'Register Member' tab first.")
                 
     with tab_register:
-        reg_name = st.text_input("Choose a Username", key="reg_name_input")
-        reg_pass = st.text_input("Choose a Password", type="password", key="reg_pass_input")
+        reg_name = st.text_input("Enter New Member Name", key="reg_name_input")
         if st.button("Register Member"):
-            if reg_name.strip() and reg_pass.strip():
+            if reg_name.strip():
                 try:
-                    cursor.execute("INSERT INTO members (name, password) VALUES (?, ?)", (reg_name.strip(), reg_pass.strip()))
+                    cursor.execute("INSERT INTO members (name) VALUES (?)", (reg_name.strip(),))
                     conn.commit()
-                    st.success("Account created! You can now log in.")
+                    st.success(f"Member '{reg_name.strip()}' created successfully! You can now log in.")
+                    st.rerun()
                 except sqlite3.IntegrityError:
-                    st.error("Username already exists!")
+                    st.error("Member name already exists!")
             else:
-                st.warning("Please fill in both fields.")
+                st.warning("Please enter a name.")
                 
     st.stop()
 
 # --- MAIN APP ---
 st.title(f"⛽ Petrol.py: Welcome, {st.session_state.username}!")
 
-# --- SIDEBAR: CONTROLS & PASSWORD CHANGE ---
+# --- SIDEBAR: CONTROLS ---
 st.sidebar.markdown(f"**Logged in as:** `{st.session_state.username}`")
 if st.sidebar.button("🚪 Log Out"):
     st.session_state.logged_in = False
@@ -139,81 +111,48 @@ with tab1:
     if ongoing_ride:
         active_id, active_riders, active_start_time, active_start_odo = ongoing_ride
         
-        st.warning(f"⚠️ Active ongoing ride found (Started by **{active_riders}**). Close it out below to proceed.")
+        st.warning(f"⚠️ **Attention!** Active ongoing ride found (Started by **{active_riders}** at `{active_start_time}`).")
+        st.info("You must close out the previous ride manually before starting a new one.")
         
-        prev_end_img = st.camera_input("Odometer picture to close previous ride", key="cam_prev_end")
-        
-        suggested_val = active_start_odo
-        if prev_end_img is not None:
-            is_valid, msg, detected_num = extract_odometer_value(prev_end_img)
-            if is_valid:
-                suggested_val = max(active_start_odo, detected_num)
-                st.toast("🔍 Auto-extracted odometer reading from image!")
-
-        prev_end_odo = st.number_input("Current Odometer Reading (KM)", min_value=active_start_odo, value=float(suggested_val), step=0.1, key="prev_end_odo")
+        prev_end_odo = st.number_input("Enter Previous Ride's Ending Odometer (KM)", min_value=active_start_odo, step=0.1, key="prev_end_odo")
         petrol_price_prev = st.number_input("Today's Petrol Price (per Liter)", min_value=0.0, value=100.0, step=0.5, key="pp_prev")
         mileage_prev = st.number_input("Bike Mileage (KM per Liter)", min_value=5.0, value=45.0, step=1.0, key="m_prev")
         
         if st.button("🏁 Force End Previous Ride & Proceed"):
-            if prev_end_img is None:
-                st.error("Please capture the odometer picture.")
+            if prev_end_odo <= active_start_odo:
+                st.error("End odometer must be greater than start odometer.")
             else:
-                is_valid, msg, _ = extract_odometer_value(prev_end_img)
-                if not is_valid:
-                    st.error(f"❌ {msg}")
-                elif prev_end_odo <= active_start_odo:
-                    st.error("End odometer must be greater than start odometer.")
-                else:
-                    end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    distance = prev_end_odo - active_start_odo
-                    total_cost = (distance / mileage_prev) * petrol_price_prev
-                    end_image_bytes = prev_end_img.getvalue()
-                    
-                    cursor.execute("""
-                        UPDATE rides 
-                        SET end_time = ?, end_odo = ?, distance = ?, petrol_price = ?, total_cost = ?, status = 'Completed', end_image = ?
-                        WHERE id = ?
-                    """, (end_time, prev_end_odo, distance, petrol_price_prev, total_cost, end_image_bytes, active_id))
-                    conn.commit()
-                    st.success("Previous ride closed successfully! You can now start your ride.")
-                    st.rerun()
+                end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                distance = prev_end_odo - active_start_odo
+                total_cost = (distance / mileage_prev) * petrol_price_prev
+                
+                cursor.execute("""
+                    UPDATE rides 
+                    SET end_time = ?, end_odo = ?, distance = ?, petrol_price = ?, total_cost = ?, status = 'Completed'
+                    WHERE id = ?
+                """, (end_time, prev_end_odo, distance, petrol_price_prev, total_cost, active_id))
+                conn.commit()
+                st.success(f"Previous ride successfully closed! Distance: {distance} KM. You can now start your ride below.")
+                st.rerun()
                 
     else:
         selected_riders = st.multiselect("Select Rider(s)", members, default=[st.session_state.username])
-        
-        st.markdown("### Odometer Picture (Before Ride)")
-        start_img_file = st.camera_input("Take a picture of the odometer (Start)", key="cam_start")
-        
-        default_start_val = 0.0
-        if start_img_file is not None:
-            is_valid, msg, detected_num = extract_odometer_value(start_img_file)
-            if is_valid:
-                default_start_val = detected_num
-                st.toast("🔍 Auto-extracted starting odometer reading!")
-
-        start_odo = st.number_input("Enter or Verify Start Odometer Reading (KM)", min_value=0.0, value=float(default_start_val), step=0.1)
+        start_odo = st.number_input("Enter Starting Odometer Reading (KM)", min_value=0.0, step=0.1)
         
         if st.button("🚀 Register & Start Ride"):
             if not selected_riders:
                 st.error("Please select at least one rider.")
-            elif start_img_file is None:
-                st.error("Please capture the start odometer picture.")
             else:
-                is_valid, msg, _ = extract_odometer_value(start_img_file)
-                if not is_valid:
-                    st.error(f"❌ {msg}")
-                else:
-                    start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    riders_str = ",".join(selected_riders)
-                    start_image_bytes = start_img_file.getvalue()
-                    
-                    cursor.execute("""
-                        INSERT INTO rides (riders, start_time, start_odo, status, start_image)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (riders_str, start_time, start_odo, "Ongoing", start_image_bytes))
-                    conn.commit()
-                    st.success(f"Ride started successfully for: {riders_str}!")
-                    st.rerun()
+                start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                riders_str = ",".join(selected_riders)
+                
+                cursor.execute("""
+                    INSERT INTO rides (riders, start_time, start_odo, status)
+                    VALUES (?, ?, ?, ?)
+                """, (riders_str, start_time, start_odo, "Ongoing"))
+                conn.commit()
+                st.success(f"Ride started successfully at {start_time} for: {riders_str}!")
+                st.rerun()
 
 # --- TAB 2: END RIDE ---
 with tab2:
@@ -229,50 +168,32 @@ with tab2:
         chosen_ride = ride_options[selected_ride_key]
         
         ride_id, riders_str, start_time, start_odo = chosen_ride
-        st.write(f"**Starting Odometer was:** {start_odo} KM")
+        st.write(f"**Starting Odometer Recorded:** {start_odo} KM")
         
-        st.markdown("### Odometer Picture (After Ride)")
-        end_img_file = st.camera_input("Take a picture of the odometer (End)", key="cam_end")
-        
-        default_end_val = start_odo + 10.0
-        if end_img_file is not None:
-            is_valid, msg, detected_num = extract_odometer_value(end_img_file)
-            if is_valid:
-                default_end_val = max(start_odo, detected_num)
-                st.toast("🔍 Auto-extracted ending odometer reading!")
-
-        end_odo = st.number_input("Enter or Verify End Odometer Reading (KM)", min_value=start_odo, value=float(default_end_val), step=0.1)
-        
+        end_odo = st.number_input("Enter Ending Odometer Reading (KM)", min_value=start_odo, step=0.1)
         petrol_price = st.number_input("Today's Petrol Price (per Liter)", min_value=0.0, value=100.0, step=0.5)
         mileage = st.number_input("Bike Mileage (KM per Liter)", min_value=5.0, value=45.0, step=1.0)
         
         if st.button("🏁 Complete Ride & Calculate Split"):
-            if end_img_file is None:
-                st.error("Please capture the end odometer picture.")
+            if end_odo <= start_odo:
+                st.error("End odometer must be greater than start odometer.")
             else:
-                is_valid, msg, _ = extract_odometer_value(end_img_file)
-                if not is_valid:
-                    st.error(f"❌ {msg}")
-                elif end_odo <= start_odo:
-                    st.error("End odometer must be greater than start odometer.")
-                else:
-                    end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    distance = end_odo - start_odo
-                    total_cost = (distance / mileage) * petrol_price
-                    end_image_bytes = end_img_file.getvalue()
-                    
-                    cursor.execute("""
-                        UPDATE rides 
-                        SET end_time = ?, end_odo = ?, distance = ?, petrol_price = ?, total_cost = ?, status = 'Completed', end_image = ?
-                        WHERE id = ?
-                    """, (end_time, end_odo, distance, petrol_price, total_cost, end_image_bytes, ride_id))
-                    conn.commit()
-                    
-                    st.success(f"Ride completed! Distance: {distance} KM | Total Cost: ₹{total_cost:.2f}")
-                    riders_list = riders_str.split(",")
-                    share_per_person = total_cost / len(riders_list)
-                    st.info(f"Split among {len(riders_list)} riders: **₹{share_per_person:.2f} each**.")
-                    st.rerun()
+                end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                distance = end_odo - start_odo
+                total_cost = (distance / mileage) * petrol_price
+                
+                cursor.execute("""
+                    UPDATE rides 
+                    SET end_time = ?, end_odo = ?, distance = ?, petrol_price = ?, total_cost = ?, status = 'Completed'
+                    WHERE id = ?
+                """, (end_time, end_odo, distance, petrol_price, total_cost, ride_id))
+                conn.commit()
+                
+                st.success(f"Ride completed! Total Distance: {distance} KM | Total Cost: ₹{total_cost:.2f}")
+                riders_list = riders_str.split(",")
+                share_per_person = total_cost / len(riders_list)
+                st.info(f"Split among {len(riders_list)} riders: **₹{share_per_person:.2f} each**.")
+                st.rerun()
 
 # --- TAB 3: LEDGER & HISTORY ---
 with tab3:
@@ -283,26 +204,6 @@ with tab3:
     if all_rides:
         df_rides = pd.DataFrame(all_rides, columns=["ID", "Riders", "Start Time", "End Time", "Distance (KM)", "Total Cost (₹)", "Status"])
         st.dataframe(df_rides, use_container_width=True)
-        
-        st.markdown("### 📷 View Ride Odometer Proof")
-        selected_ride_id = st.selectbox("Select Ride ID to view pictures", [r[0] for r in all_rides])
-        if selected_ride_id:
-            cursor.execute("SELECT start_image, end_image FROM rides WHERE id = ?", (selected_ride_id,))
-            img_row = cursor.fetchone()
-            if img_row:
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**Start Odometer Photo**")
-                    if img_row[0]:
-                        st.image(Image.open(io.BytesIO(img_row[0])), use_container_width=True)
-                    else:
-                        st.info("No start image saved.")
-                with col2:
-                    st.write("**End Odometer Photo**")
-                    if img_row[1]:
-                        st.image(Image.open(io.BytesIO(img_row[1])), use_container_width=True)
-                    else:
-                        st.info("No end image saved yet.")
     else:
         st.info("No ride history available yet.")
         
