@@ -8,7 +8,7 @@ def init_db():
     conn = sqlite3.connect("bike_tracker.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # Members table (only names needed now)
+    # Members table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,27 +45,34 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-# Fetch existing members for login dropdown
+# Fetch existing members for verification
 cursor.execute("SELECT name FROM members")
 members = [row[0] for row in cursor.fetchall()]
 
 # --- LOGIN SCREEN ---
 if not st.session_state.logged_in:
     st.title("⛽ Petrol.py: Login")
-    st.markdown("Select your name to log in, or register a new member below.")
+    st.markdown("Type your exact username to log in, or register a new member below.")
     
     tab_login, tab_register = st.tabs(["🔑 Log In", "➕ Register Member"])
     
     with tab_login:
-        if members:
-            selected_login_name = st.selectbox("Select Your Name", members, key="login_select")
-            if st.button("Log In"):
+        login_name_input = st.text_input("Enter Your Username", key="login_text_input")
+        if st.button("Log In"):
+            entered_name = login_name_input.strip()
+            # Check if name exists in database (case-insensitive check can also be applied if needed)
+            cursor.execute("SELECT name FROM members WHERE name = ?", (entered_name,))
+            user_exists = cursor.fetchone()
+            
+            if entered_name and user_exists:
                 st.session_state.logged_in = True
-                st.session_state.username = selected_login_name
-                st.success(f"Welcome back, {selected_login_name}!")
+                st.session_state.username = entered_name
+                st.success(f"Welcome back, {entered_name}!")
                 st.rerun()
-        else:
-            st.info("No members registered yet. Please go to the 'Register Member' tab first.")
+            elif not entered_name:
+                st.warning("Please enter a username.")
+            else:
+                st.error("Username not found! Please check the spelling or register first.")
                 
     with tab_register:
         reg_name = st.text_input("Enter New Member Name", key="reg_name_input")
@@ -74,8 +81,7 @@ if not st.session_state.logged_in:
                 try:
                     cursor.execute("INSERT INTO members (name) VALUES (?)", (reg_name.strip(),))
                     conn.commit()
-                    st.success(f"Member '{reg_name.strip()}' created successfully! You can now log in.")
-                    st.rerun()
+                    st.success(f"Member '{reg_name.strip()}' created successfully! You can now switch to the Log In tab.")
                 except sqlite3.IntegrityError:
                     st.error("Member name already exists!")
             else:
