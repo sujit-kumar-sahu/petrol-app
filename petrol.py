@@ -58,13 +58,14 @@ if not st.session_state.logged_in:
         login_name_input = st.text_input("Enter Your Username", key="login_text_input")
         if st.button("Log In"):
             entered_name = login_name_input.strip()
-            cursor.execute("SELECT name FROM members WHERE name = ?", (entered_name,))
-            user_exists = cursor.fetchone()
+            # Case-insensitive lookup
+            cursor.execute("SELECT name FROM members WHERE LOWER(name) = LOWER(?)", (entered_name,))
+            user_record = cursor.fetchone()
             
-            if entered_name and user_exists:
+            if entered_name and user_record:
                 st.session_state.logged_in = True
-                st.session_state.username = entered_name
-                st.success(f"Welcome back, {entered_name}!")
+                st.session_state.username = user_record[0]
+                st.success(f"Welcome back, {user_record[0]}!")
                 st.rerun()
             elif not entered_name:
                 st.warning("Please enter a username.")
@@ -250,7 +251,7 @@ with tab3:
     st.markdown("Use this option after settlement to archive or clear previous ride records and reset tracking counters.")
 
     with st.expander("🔐 Reset Ride Records (Protected)"):
-        st.warning("Warning: This action will delete or clear the completed ride ledger and reset current tracking counters. This cannot be easily undone.")
+        st.warning("Warning: This action will clear the completed ride ledger and reset current tracking counters. This cannot be easily undone.")
         
         confirm_checkbox = st.checkbox("I understand this will clear current accumulated records and want to proceed.", key="reset_safety_checkbox")
         
