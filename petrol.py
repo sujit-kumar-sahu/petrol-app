@@ -8,12 +8,11 @@ def init_db():
     conn = sqlite3.connect("bike_tracker.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # Members table with password support matching your database
+    # Members table (username only)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
+            name TEXT UNIQUE NOT NULL
         )
     """)
     
@@ -47,19 +46,18 @@ if "logged_in" not in st.session_state:
 # --- LOGIN SCREEN ---
 if not st.session_state.logged_in:
     st.title("⛽ Petrol.py: Login")
-    st.markdown("Type your exact username and password to log in, or register a new member below.")
+    st.markdown("Type your username to log in, or register a new member below.")
     
     tab_login, tab_register = st.tabs(["🔑 Log In", "➕ Register Member"])
     
     with tab_login:
         login_name_input = st.text_input("Enter Your Username", key="login_text_input")
-        login_pass_input = st.text_input("Enter Your Password", type="password", key="login_pass_input")
         
         if st.button("Log In"):
             entered_name = login_name_input.strip()
             
-            # Case-insensitive lookup matching name and password
-            cursor.execute("SELECT name FROM members WHERE LOWER(name) = LOWER(?) AND password = ?", (entered_name, login_pass_input))
+            # Case-insensitive lookup
+            cursor.execute("SELECT name FROM members WHERE LOWER(name) = LOWER(?)", (entered_name,))
             user_record = cursor.fetchone()
             
             if entered_name and user_record:
@@ -70,22 +68,21 @@ if not st.session_state.logged_in:
             elif not entered_name:
                 st.warning("Please enter a username.")
             else:
-                st.error("Invalid username or password! Please check your credentials or register first.")
+                st.error("Username not found! Please check the spelling or register first.")
                 
     with tab_register:
         reg_name = st.text_input("Enter New Member Name", key="reg_name_input")
-        reg_pass = st.text_input("Create Password", type="password", key="reg_pass_input")
         
         if st.button("Register Member"):
-            if reg_name.strip() and reg_pass.strip():
+            if reg_name.strip():
                 try:
-                    cursor.execute("INSERT INTO members (name, password) VALUES (?, ?)", (reg_name.strip(), reg_pass.strip()))
+                    cursor.execute("INSERT INTO members (name) VALUES (?)", (reg_name.strip(),))
                     conn.commit()
                     st.success(f"Member '{reg_name.strip()}' created successfully! You can now switch to the Log In tab.")
                 except sqlite3.IntegrityError:
                     st.error("Member name already exists!")
             else:
-                st.warning("Please fill in both name and password.")
+                st.warning("Please enter a name.")
                 
     st.stop()
 
