@@ -263,3 +263,20 @@ with tab3:
                 st.rerun()
             else:
                 st.error("Accidental click prevention active: Please check the confirmation box above before resetting.")
+
+# --- ADMIN DATABASE VIEWER ---
+st.markdown("---")
+with st.expander("🛠️ Admin: View Raw Database"):
+    admin_pass = st.text_input("Enter Admin Password", type="password", key="admin_pwd")
+    if admin_pass == "admin123":
+        st.success("Access granted!")
+        
+        st.write("### 👥 Members Table")
+        df_members_raw = pd.read_sql("SELECT * FROM members", conn)
+        st.dataframe(df_members_raw, use_container_width=True)
+        
+        st.write("### 🚀 Rides Table")
+        df_rides_raw = pd.read_sql("SELECT * FROM rides", conn)
+        st.dataframe(df_rides_raw, use_container_width=True)
+    elif admin_pass:
+        st.error("Incorrect admin password.")
