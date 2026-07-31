@@ -192,6 +192,16 @@ with tab2:
 # --- TAB 3: DISTANCE LEDGER ---
 with tab3:
     st.header("📊 Ride History & Distance Breakdown")
+    
+    # Calculate overall total completed distance for metric view
+    cursor.execute("SELECT SUM(distance) FROM rides WHERE status = 'Completed'")
+    total_fleet_km_result = cursor.fetchone()[0]
+    total_fleet_km = total_fleet_km_result if total_fleet_km_result else 0.0
+    
+    # Show high-level total metric card
+    st.metric(label="🛣️ Total Fleet Distance Ran (All Completed Rides)", value=f"{total_fleet_km:.2f} KM")
+    st.markdown("---")
+    
     cursor.execute("SELECT id, riders, start_time, end_time, distance, status FROM rides")
     all_rides = cursor.fetchall()
     
