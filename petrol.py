@@ -8,16 +8,20 @@ def init_db():
     conn = sqlite3.connect("bike_tracker.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # Drop old table to clear out the password column schema
-    cursor.execute("DROP TABLE IF EXISTS members")
-    
-    # Members table (username only, no password)
+    # Create members table with username only if it doesn't exist
     cursor.execute("""
-        CREATE TABLE members (
+        CREATE TABLE IF NOT EXISTS members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL
         )
     """)
+    
+    # Safely remove the old password column if it still exists in an old database file
+    try:
+        cursor.execute("ALTER TABLE members DROP COLUMN password")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass # Column already dropped or doesn't exist, safe to ignore
     
     # Rides table
     cursor.execute("""
