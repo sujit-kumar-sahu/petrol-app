@@ -243,3 +243,22 @@ with tab3:
         st.dataframe(df_balance, use_container_width=True)
     else:
         st.write("No completed rides to calculate distance statistics.")
+
+    # --- RESET / SETTLEMENT SECTION WITH SAFETY GUARD ---
+    st.markdown("---")
+    st.subheader("⚠️ Settlement & Reset Records")
+    st.markdown("Use this option after settlement to archive or clear previous ride records and reset tracking counters.")
+
+    with st.expander("🔐 Reset Ride Records (Protected)"):
+        st.warning("Warning: This action will delete or clear the completed ride ledger and reset current tracking counters. This cannot be easily undone.")
+        
+        confirm_checkbox = st.checkbox("I understand this will clear current accumulated records and want to proceed.", key="reset_safety_checkbox")
+        
+        if st.button("🗑️ Reset All Ride Records & Start Fresh", type="primary"):
+            if confirm_checkbox:
+                cursor.execute("DELETE FROM rides")
+                conn.commit()
+                st.success("All ride records have been successfully cleared! You are ready to start fresh.")
+                st.rerun()
+            else:
+                st.error("Accidental click prevention active: Please check the confirmation box above before resetting.")
