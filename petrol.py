@@ -8,9 +8,12 @@ def init_db():
     conn = sqlite3.connect("bike_tracker.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # Members table (username only)
+    # Drop old table to clear out the password column schema
+    cursor.execute("DROP TABLE IF EXISTS members")
+    
+    # Members table (username only, no password)
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS members (
+        CREATE TABLE members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL
         )
