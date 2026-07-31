@@ -8,15 +8,16 @@ def init_db():
     conn = sqlite3.connect("bike_tracker.db", check_same_thread=False)
     cursor = conn.cursor()
     
-    # Members table
+    # Members table with password support matching your database
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL
+            name TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
         )
     """)
     
-    # Rides table (distance tracking only)
+    # Rides table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS rides (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,23 +44,22 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-# Fetch existing members for verification
-cursor.execute("SELECT name FROM members")
-members = [row[0] for row in cursor.fetchall()]
-
 # --- LOGIN SCREEN ---
 if not st.session_state.logged_in:
     st.title("⛽ Petrol.py: Login")
-    st.markdown("Type your exact username to log in, or register a new member below.")
+    st.markdown("Type your exact username and password to log in, or register a new member below.")
     
     tab_login, tab_register = st.tabs(["🔑 Log In", "➕ Register Member"])
     
     with tab_login:
         login_name_input = st.text_input("Enter Your Username", key="login_text_input")
+        login_pass_input = st.text_input("Enter Your Password", type="password", key="login_pass_input")
+        
         if st.button("Log In"):
             entered_name = login_name_input.strip()
-            # Case-insensitive lookup
-            cursor.execute("SELECT name FROM members WHERE LOWER(name) = LOWER(?)", (entered_name,))
+            
+            # Case-insensitive lookup matching name and password
+            cursor.execute("SELECT name FROM members WHERE LOWER(name) = LOWER(?) AND password = ?", (entered_name, login_pass_input))
             user_record = cursor.fetchone()
             
             if entered_name and user_record:
@@ -70,20 +70,22 @@ if not st.session_state.logged_in:
             elif not entered_name:
                 st.warning("Please enter a username.")
             else:
-                st.error("Username not found! Please check the spelling or register first.")
+                st.error("Invalid username or password! Please check your credentials or register first.")
                 
     with tab_register:
         reg_name = st.text_input("Enter New Member Name", key="reg_name_input")
+        reg_pass = st.text_input("Create Password", type="password", key="reg_pass_input")
+        
         if st.button("Register Member"):
-            if reg_name.strip():
+            if reg_name.strip() and reg_pass.strip():
                 try:
-                    cursor.execute("INSERT INTO members (name) VALUES (?)", (reg_name.strip(),))
+                    cursor.execute("INSERT INTO members (name, password) VALUES (?, ?)", (reg_name.strip(), reg_pass.strip()))
                     conn.commit()
                     st.success(f"Member '{reg_name.strip()}' created successfully! You can now switch to the Log In tab.")
                 except sqlite3.IntegrityError:
                     st.error("Member name already exists!")
             else:
-                st.warning("Please enter a name.")
+                st.warning("Please fill in both name and password.")
                 
     st.stop()
 
@@ -194,12 +196,10 @@ with tab2:
 with tab3:
     st.header("📊 Ride History & Distance Breakdown")
     
-    # Calculate overall total completed distance for metric view
     cursor.execute("SELECT SUM(distance) FROM rides WHERE status = 'Completed'")
     total_fleet_km_result = cursor.fetchone()[0]
     total_fleet_km = total_fleet_km_result if total_fleet_km_result else 0.0
     
-    # Show high-level total metric card
     st.metric(label="🛣️ Total Fleet Distance Ran (All Completed Rides)", value=f"{total_fleet_km:.2f} KM")
     st.markdown("---")
     
@@ -245,24 +245,20 @@ with tab3:
     else:
         st.write("No completed rides to calculate distance statistics.")
 
-    # --- RESET / SETTLEMENT SECTION WITH SAFETY GUARD ---
     st.markdown("---")
     st.subheader("⚠️ Settlement & Reset Records")
-    st.markdown("Use this option after settlement to archive or clear previous ride records and reset tracking counters.")
-
     with st.expander("🔐 Reset Ride Records (Protected)"):
-        st.warning("Warning: This action will clear the completed ride ledger and reset current tracking counters. This cannot be easily undone.")
-        
+        st.warning("Warning: This action will clear the completed ride ledger and reset current tracking counters.")
         confirm_checkbox = st.checkbox("I understand this will clear current accumulated records and want to proceed.", key="reset_safety_checkbox")
         
         if st.button("🗑️ Reset All Ride Records & Start Fresh", type="primary"):
             if confirm_checkbox:
                 cursor.execute("DELETE FROM rides")
                 conn.commit()
-                st.success("All ride records have been successfully cleared! You are ready to start fresh.")
+                st.success("All ride records have been successfully cleared!")
                 st.rerun()
             else:
-                st.error("Accidental click prevention active: Please check the confirmation box above before resetting.")
+                st.error("Please check the confirmation box above before resetting.")
 
 # --- ADMIN DATABASE VIEWER ---
 st.markdown("---")
