@@ -16,7 +16,7 @@ def init_db():
         )
     """)
     
-    # Rides table
+    # Rides table (distance tracking only)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS rides (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,8 +26,6 @@ def init_db():
             start_odo REAL NOT NULL,
             end_odo REAL,
             distance REAL,
-            petrol_price REAL,
-            total_cost REAL,
             status TEXT NOT NULL
         )
     """)
@@ -38,7 +36,7 @@ conn = init_db()
 cursor = conn.cursor()
 
 # --- APP CONFIGURATION ---
-st.set_page_config(page_title="Petrol.py - Bike Expense Tracker", layout="wide")
+st.set_page_config(page_title="Petrol.py - Bike Distance Tracker", layout="wide")
 
 # --- SESSION STATE FOR LOGIN ---
 if "logged_in" not in st.session_state:
@@ -60,7 +58,6 @@ if not st.session_state.logged_in:
         login_name_input = st.text_input("Enter Your Username", key="login_text_input")
         if st.button("Log In"):
             entered_name = login_name_input.strip()
-            # Check if name exists in database (case-insensitive check can also be applied if needed)
             cursor.execute("SELECT name FROM members WHERE name = ?", (entered_name,))
             user_exists = cursor.fetchone()
             
@@ -105,7 +102,7 @@ st.sidebar.markdown("---")
 st.sidebar.write("**All Members:**", ", ".join(members))
 
 # --- NAVIGATION TABS ---
-tab1, tab2, tab3 = st.tabs(["🚀 Start Ride", "🏁 End Ride & Calculate", "📊 Ledger & History"])
+tab1, tab2, tab3 = st.tabs(["🚀 Start Ride", "🏁 End Ride", "📊 Distance Ledger"])
 
 # --- TAB 1: START RIDE ---
 with tab1:
@@ -121,8 +118,6 @@ with tab1:
         st.info("You must close out the previous ride manually before starting a new one.")
         
         prev_end_odo = st.number_input("Enter Previous Ride's Ending Odometer (KM)", min_value=active_start_odo, step=0.1, key="prev_end_odo")
-        petrol_price_prev = st.number_input("Today's Petrol Price (per Liter)", min_value=0.0, value=100.0, step=0.5, key="pp_prev")
-        mileage_prev = st.number_input("Bike Mileage (KM per Liter)", min_value=5.0, value=45.0, step=1.0, key="m_prev")
         
         if st.button("🏁 Force End Previous Ride & Proceed"):
             if prev_end_odo <= active_start_odo:
@@ -130,13 +125,12 @@ with tab1:
             else:
                 end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 distance = prev_end_odo - active_start_odo
-                total_cost = (distance / mileage_prev) * petrol_price_prev
                 
                 cursor.execute("""
                     UPDATE rides 
-                    SET end_time = ?, end_odo = ?, distance = ?, petrol_price = ?, total_cost = ?, status = 'Completed'
+                    SET end_time = ?, end_odo = ?, distance = ?, status = 'Completed'
                     WHERE id = ?
-                """, (end_time, prev_end_odo, distance, petrol_price_prev, total_cost, active_id))
+                """, (end_time, prev_end_odo, distance, active_id))
                 conn.commit()
                 st.success(f"Previous ride successfully closed! Distance: {distance} KM. You can now start your ride below.")
                 st.rerun()
@@ -177,57 +171,65 @@ with tab2:
         st.write(f"**Starting Odometer Recorded:** {start_odo} KM")
         
         end_odo = st.number_input("Enter Ending Odometer Reading (KM)", min_value=start_odo, step=0.1)
-        petrol_price = st.number_input("Today's Petrol Price (per Liter)", min_value=0.0, value=100.0, step=0.5)
-        mileage = st.number_input("Bike Mileage (KM per Liter)", min_value=5.0, value=45.0, step=1.0)
         
-        if st.button("🏁 Complete Ride & Calculate Split"):
+        if st.button("🏁 Complete Ride"):
             if end_odo <= start_odo:
                 st.error("End odometer must be greater than start odometer.")
             else:
                 end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 distance = end_odo - start_odo
-                total_cost = (distance / mileage) * petrol_price
                 
                 cursor.execute("""
                     UPDATE rides 
-                    SET end_time = ?, end_odo = ?, distance = ?, petrol_price = ?, total_cost = ?, status = 'Completed'
+                    SET end_time = ?, end_odo = ?, distance = ?, status = 'Completed'
                     WHERE id = ?
-                """, (end_time, end_odo, distance, petrol_price, total_cost, ride_id))
+                """, (end_time, end_odo, distance, ride_id))
                 conn.commit()
                 
-                st.success(f"Ride completed! Total Distance: {distance} KM | Total Cost: ₹{total_cost:.2f}")
-                riders_list = riders_str.split(",")
-                share_per_person = total_cost / len(riders_list)
-                st.info(f"Split among {len(riders_list)} riders: **₹{share_per_person:.2f} each**.")
+                st.success(f"Ride completed! Total Distance: {distance} KM.")
                 st.rerun()
 
-# --- TAB 3: LEDGER & HISTORY ---
+# --- TAB 3: DISTANCE LEDGER ---
 with tab3:
-    st.header("📊 Ride History & Expense Ledger")
-    cursor.execute("SELECT id, riders, start_time, end_time, distance, total_cost, status FROM rides")
+    st.header("📊 Ride History & Distance Breakdown")
+    cursor.execute("SELECT id, riders, start_time, end_time, distance, status FROM rides")
     all_rides = cursor.fetchall()
     
     if all_rides:
-        df_rides = pd.DataFrame(all_rides, columns=["ID", "Riders", "Start Time", "End Time", "Distance (KM)", "Total Cost (₹)", "Status"])
+        df_rides = pd.DataFrame(all_rides, columns=["ID", "Riders", "Start Time", "End Time", "Distance (KM)", "Status"])
         st.dataframe(df_rides, use_container_width=True)
     else:
         st.info("No ride history available yet.")
         
-    st.subheader("💡 Individual Balances (Who Owes What)")
+    st.subheader("💡 Member Distance Share & Percentage (%)")
     if all_rides:
-        cursor.execute("SELECT riders, total_cost FROM rides WHERE status = 'Completed'")
+        cursor.execute("SELECT riders, distance FROM rides WHERE status = 'Completed'")
         completed_rides = cursor.fetchall()
         
-        balances = {m: 0.0 for m in members}
-        for riders_str, total_cost in completed_rides:
-            if total_cost:
+        distances_ran = {m: 0.0 for m in members}
+        total_accumulated_distance = 0.0
+        
+        for riders_str, distance in completed_rides:
+            if distance:
                 riders_list = riders_str.split(",")
-                share = total_cost / len(riders_list)
+                trip_distance = distance
+                total_accumulated_distance += trip_distance
+                
                 for rider in riders_list:
-                    if rider in balances:
-                        balances[rider] += share
+                    if rider in distances_ran:
+                        distances_ran[rider] += trip_distance
                     
-        df_balance = pd.DataFrame(list(balances.items()), columns=["Member", "Total Amount Owed (₹)"])
+        summary_data = []
+        for m in members:
+            dist = distances_ran[m]
+            pct = (dist / total_accumulated_distance * 100) if total_accumulated_distance > 0 else 0.0
+            summary_data.append({
+                "Member": m,
+                "Total Distance Ran (KM)": round(dist, 2),
+                "Share of Total KM (%)": f"{pct:.1f}%"
+            })
+            
+        df_balance = pd.DataFrame(summary_data)
         st.dataframe(df_balance, use_container_width=True)
     else:
-        st.write("No completed rides to calculate balances.")
+        st.write("No completed rides to calculate distance statistics.")
