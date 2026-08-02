@@ -264,9 +264,9 @@ with tab3:
             else:
                 st.error("Please check the confirmation box above before resetting.")
 
-# --- ADMIN DATABASE VIEWER ---
+# --- ADMIN DATABASE VIEWER & EDITOR ---
 st.markdown("---")
-with st.expander("🛠️ Admin: View Raw Database"):
+with st.expander("🛠️ Admin: View & Edit Database"):
     admin_pass = st.text_input("Enter Admin Password", type="password", key="admin_pwd")
     if admin_pass == "admin123":
         st.success("Access granted!")
@@ -278,5 +278,39 @@ with st.expander("🛠️ Admin: View Raw Database"):
         st.write("### 🚀 Rides Table")
         df_rides_raw = pd.read_sql("SELECT * FROM rides", conn)
         st.dataframe(df_rides_raw, use_container_width=True)
+        
+        st.markdown("---")
+        st.write("### ✏️ Edit Specific Ride Odometer Values")
+        cursor.execute("SELECT id, riders, start_time, start_odo, end_odo FROM rides")
+        editable_rides = cursor.fetchall()
+        
+        if editable_rides:
+            ride_choices = {f"ID {r[0]} | Riders: {r[1]} | Start: {r[2]}": r for r in editable_rides}
+            selected_edit_key = st.selectbox("Select Ride to Modify", list(ride_choices.keys()))
+            chosen_edit_ride = ride_choices[selected_edit_key]
+            
+            edit_id = chosen_edit_ride[0]
+            current_start_odo = chosen_edit_ride[3]
+            current_end_odo = chosen_edit_ride[4] if chosen_edit_ride[4] is not None else 0.0
+            
+            new_start_input = st.number_input("New Start Odometer (KM)", value=float(current_start_odo), step=0.1)
+            new_end_input = st.number_input("New End Odometer (KM)", value=float(current_end_odo), step=0.1)
+            
+            if st.button("💾 Update Ride Values"):
+                if new_end_input <= new_start_input:
+                    st.error("End odometer must be greater than start odometer.")
+                else:
+                    new_distance = new_end_input - new_start_input
+                    cursor.execute("""
+                        UPDATE rides 
+                        SET start_odo = ?, end_odo = ?, distance = ?
+                        WHERE id = ?
+                    """, (new_start_input, new_end_input, new_distance, edit_id))
+                    conn.commit()
+                    st.success(f"Ride ID {edit_id} updated successfully! New distance: {new_distance} KM.")
+                    st.rerun()
+        else:
+            st.info("No rides found to edit.")
+            
     elif admin_pass:
         st.error("Incorrect admin password.")
